@@ -22,68 +22,98 @@ https://github.com/conda-forge/miniforge/#download
 
 https://docs.conda.io/en/latest/miniconda.html
 (using miniforge command line window)
-conda install numba, scipy, numpy, pipwin
+conda install numba, scipy, numpy, pipwin, np_rw_buffer
 pip install pipwin
 pipwin install pyaudio #assuming you're on windows
 
 python thepythonfilename.py #assuming the python file is in the current directory
 
 """
-
-import struct
 import numpy
 import pyaudio
 import scipy.stats
+import numba
 from np_rw_buffer import RingBuffer, AudioFramingBuffer
 
 
-def relay(data: [float]):
-    data = data.astype(float)
-    data = data / 1
-    dleft, dright = data[0::2], data[1::2]
-    dleft = fabada1x(dleft)
-    dright = fabada1x(dright)
-    data = numpy.concatenate((dleft, dright))
-    data2 = numpy.column_stack(numpy.split(data, 2)).ravel().astype(numpy.int16)
-    return data2
+#def relay(data: [float]):
+ #   data = data.astype(float)
+#    data = data / 1
+   # dleft, dright = data[0::2], data[1::2] # only needed for splitting of channels in relay
+#    dleft = fabada1x(dleft)
+#    dright = fabada1x(dright)
+ #   data = numpy.concatenate((dleft, dright))
+ #   data2 = #only needed for channels numpy.column_stack(numpy.split(data, 2)).ravel().astype(numpy.int16)    data = numpy.concatenate((dleft, dright))"""
 
+#(numba.types.Tuple((numba.float64[:],numba.float64[:],numba.float64,numba.float64))(numba.float64[:]))
+@numba.jit(nopython=True)
+def evaluate(prior_mean: [float],data: [float],prior_variance: float,data_variance: float):
+    x = numpy.exp(-((prior_mean - data) ** 2) / (2 * (prior_variance + data_variance))) / numpy.sqrt(
+        2 * numpy.pi * (prior_variance + data_variance))
+    return x
+
+
+@numba.jit(numba.types.Tuple((numba.float64[:],numba.float64))( numba.float64[:]))
+def variance(data: [float]):
+    data = data / 1.0
+    data_alpha_padded = numpy.empty(shape=[16384], dtype=float, order='C', like=None)
+    data_beta = numpy.empty(shape=[16384], dtype=float, order='C', like=None)
+    data_variance_residues = numpy.empty(shape=[16384], dtype=float, order='C', like=None)
+    data_variance  = numpy.empty(shape=[16384], dtype=float, order='C', like=None)
+     #numpy.ndarray(buffer=data,dtype=float,shape=[16384])
+    data_alpha_padded = numpy.concatenate((numpy.full((1,), (data[0] / 2) + (data[1] / 2)), data, numpy.full((1,), (data[-1] / 2) + (data[-2] / 2))))
+    # average the data
+    data_beta = numpy.asarray([(i + j + k / 3) for i, j, k in
+                               zip(data_alpha_padded, data_alpha_padded[1:], data_alpha_padded[2:])])
+
+    # get the smallest positive average, get the smallest out of the two. conveniently this also returns the distance between the average and the not so average
+    #which is also known as the variance. ugh! numba why u like this
+    #data_variance_residues = [abs(x - j) for x, j in zip(data_beta, data)]
+    data_variance_residues = numpy.absolute(data_beta - data)
+    #print(data_variance_residues==data_variance_residue2s)
+    # we assume beta is larger than residual. after all, few values will be outliers.
+    # we want the algorithm to speculatively assume the variance is smaller for data that slopes well per sample.
+    variance5 = abs(numpy.var(data_variance_residues))  * 1.61803398875
+
+    data_variance =  data_variance_residues * variance5
+    #for some reason sometimes this overflows to NAN, which is a major NONO
+   #however for numpa to work the Nan processing has to be done elsewhere, thus export variance5 for the bounding
+    return data_variance,variance5
+
+
+#@numba.jit(nopython=True) # for some reason this cant devide by zero when compiled
+#todo: fix invalid values
+def Evidence_start(data_variance: [float]):
+    return numpy.exp(-((0 - numpy.sqrt(data_variance)) ** 2) / (2 * (0 + data_variance))) / numpy.sqrt(
+        2 * numpy.pi * (0 + data_variance))
+
+def signaltonoise_dB(a, axis=0, ddof=0):
+    a = numpy.asanyarray(a)
+    m = a.mean(axis)
+    sd = a.std(axis=axis, ddof=ddof)
+    return 20*numpy.log10(abs(numpy.where(sd == 0, 0, m/sd)))
+
+
+def PSNR(recover, signal, L=255):
+    MSE = numpy.sum((recover - signal) ** 2) / (recover.size)
+    return 10 * numpy.log10((L) ** 2 / MSE)
 
 def fabada1x(data: [float]):
     # fabada expects the data as a floating point array, so, that is what we are going to work with.
-    max_iter: int = 100  # as many as your cpu can handle, lol.
+    #define the number of iterations based on the SNR of the sample, where noisier samples need more work.
+    # the most this can be is around 40 to -80, inverted, adds max of 80, subtracts most of 40.
+    max_iter: int = 50 + int(numpy.nan_to_num((signaltonoise_dB(data, axis=0, ddof=0) * -1.0),posinf=80.0,neginf=-40))
     # move buffer calculations
     # Get the channels
     data = data.astype(float)
     # insert the values before and after
-    data_alpha_padded = numpy.concatenate((numpy.full((1,), (data[0] / 2) + (data[1] / 2)), data, numpy.full((1,), (data[-1] / 2) + (data[-2] / 2))))
-    # average the data
-    data_beta = numpy.asarray([(i + j + k / 3) for i, j, k in
-                               zip(data_alpha_padded, data_alpha_padded[1:], data_alpha_padded[2:])], dtype=float)
-
-    # get the smallest positive average, get the smallest out of the two. conveniently this also returns the distance between the average and the not so average
-    data_variance_residues = numpy.asanyarray([abs(x - j) for x, j in zip(data_beta, data)], dtype=float)
-    # we assume beta is larger than residual.
-    # we want the algorithm to speculatively assume the variance is smaller for data that slopes well per sample.
-    variance5 = abs(numpy.var(data_variance_residues))  * 1.61803398875
-
-
-    data_variance =  numpy.asanyarray([(x * variance5) for x in data_variance_residues], dtype=float)
-    #for some reason sometimes this overflows to NAN, which is a major NONO
-    data_variance = numpy.nan_to_num(variance5, copy=False)
-
-    #data_variance_mean = numpy.mean(data_variance)
-   # data_max = data_variance_mean * 2.718281828459045
-    #crush the variance at some high point to avoid over-estimating the peaks
-    #incidentally this also helps with one of the noise issues. Doesn't fully eliminat it when switchin frequencies, but helps.
-    #data_variance = numpy.where(data_variance>data_max,data_variance_mean, data_variance)
-
-    #data_variance = numpy.where(data_variance>data_variance_peak, data_variance_peak, data_variance)
-    #data_variance = numpy.where(data_variance<2.718281828459045, 2.718281828459045, data_variance)
     posterior_mean = data
+    data_variance ,var5 = variance(data)
+    #prevents overflows
+    data_variance = numpy.nan_to_num(var5, copy=False)
+
     posterior_variance = data_variance
-    evidence = numpy.exp(-((0 - numpy.sqrt(data_variance)) ** 2) / (2 * (0 + data_variance))) / numpy.sqrt(
-        2 * numpy.pi * (0 + data_variance)
-    )
+    evidence = Evidence_start(data_variance)
     
     initial_evidence = evidence
     chi2_pdf, chi2_data, iteration = 0, data.size, 0
@@ -116,9 +146,7 @@ def fabada1x(data: [float]):
         posterior_mean = (prior_mean / prior_variance + data / data_variance) * posterior_variance
 
         # EVALUATE EVIDENCE
-        evidence = numpy.exp(-((prior_mean - data) ** 2) / (2 * (prior_variance + data_variance))) / numpy.sqrt(
-            2 * numpy.pi * (prior_variance + data_variance)
-        )
+        evidence = evaluate(prior_mean,data,prior_variance,data_variance)
         evidence_derivative = numpy.mean(evidence) - evidence_previous
 
         # EVALUATE CHI2
@@ -128,6 +156,7 @@ def fabada1x(data: [float]):
         chi2_pdf_snd_derivative = chi2_pdf_derivative - chi2_pdf_derivative_previous
 
         # COMBINE MODELS FOR THE ESTIMATION
+
         model_weight = evidence * chi2_data
         bayesian_weight += model_weight
         bayesian_model += model_weight * posterior_mean
@@ -148,7 +177,6 @@ def fabada1x(data: [float]):
             bayesian_model += model_weight * data
 
     return bayesian_model / bayesian_weight
-
 
 class StreamSampler(object):
 
