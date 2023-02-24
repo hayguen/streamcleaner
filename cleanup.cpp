@@ -217,7 +217,7 @@ private:
 
 		// Remove NaN values from arr
 		for (int i = 0; i < NBINS_last; i++) {
-			if (!isnan(data[i])) {
+			if (!std::isnan(data[i])) {
 				arr[n] = data[i];
 				n++;
 			}
@@ -229,7 +229,7 @@ private:
 		}
 
 		// Compute the median of arr
-		sort(arr.begin(), arr.begin() + n);
+		std::sort(arr.begin(), arr.begin() + n);
 		float t = (n % 2 == 0) ? (arr[n / 2] + arr[(n / 2) - 1]) / 2.0 : arr[n / 2];
 
 		// Compute the median of the absolute difference between arr and t
@@ -237,7 +237,7 @@ private:
 		for (int i = 0; i < n; i++) {
 			non_zero_diff[i] = abs(arr[i] - t);
 		}
-		sort(non_zero_diff.begin(), non_zero_diff.begin() + n);
+		std::sort(non_zero_diff.begin(), non_zero_diff.begin() + n);
 		float e = (n % 2 == 0) ? (non_zero_diff[n / 2] + non_zero_diff[(n / 2) - 1]) / 2.0 : non_zero_diff[n / 2];
 
 		// Compute the square root of the mean of the squared absolute deviation from e
@@ -282,7 +282,7 @@ private:
 		for (int j = 0; j < NBINS_last; j++) {
 			for (int i = 0; i < 192; i++) {
 				float val = data[j][i];
-				if (!isnan(val) && isfinite(val)) {
+				if (!std::isnan(val) && std::isfinite(val)) {
 					float diff = abs(val - median);
 					sum += diff * diff;
 					n++;
@@ -321,11 +321,11 @@ private:
 	/// <param name="Y"></param>
 	/// <returns></returns>
 	inline float correlationCoefficient(const std::array<float, 257>& X, const std::array<float, 257>& Y) {
-		float sum_X = accumulate(X.begin(), X.begin() + NBINS_last, 0.0);
-		float sum_Y = accumulate(Y.begin(), Y.begin() + NBINS_last, 0.0);
-		float sum_XY = inner_product(X.begin(), X.begin() + NBINS_last, Y.begin(), 0.0);
-		float squareSum_X = inner_product(X.begin(), X.begin() + NBINS_last, X.begin(), 0.0);
-		float squareSum_Y = inner_product(Y.begin(), Y.begin() + NBINS_last, Y.begin(), 0.0);
+		float sum_X = std::accumulate(X.begin(), X.begin() + NBINS_last, 0.0);
+		float sum_Y = std::accumulate(Y.begin(), Y.begin() + NBINS_last, 0.0);
+		float sum_XY = std::inner_product(X.begin(), X.begin() + NBINS_last, Y.begin(), 0.0);
+		float squareSum_X = std::inner_product(X.begin(), X.begin() + NBINS_last, X.begin(), 0.0);
+		float squareSum_Y = std::inner_product(Y.begin(), Y.begin() + NBINS_last, Y.begin(), 0.0);
 
 		float corr = (NBINS_last * sum_XY - sum_X * sum_Y) /
 			sqrt((NBINS_last * squareSum_X - sum_X * sum_X) *
@@ -390,7 +390,7 @@ private:
 				temp_257[j] = data[j][i];
 			}
 			// Create a subset of the first NBINS elements of d and sort it
-			sort(temp_257.begin(), temp_257.begin() + NBINS_last);
+			std::sort(temp_257.begin(), temp_257.begin() + NBINS_last);
 
 			float dx = temp_257[NBINS_last-1] - temp_257[0];
 			for (int j = 0; j < NBINS_last; j++) {
@@ -398,7 +398,7 @@ private:
 			}
 
 			float v = correlationCoefficient(temp_257, logit_distribution);
-			if (isnan(v)) {
+			if (std::isnan(v)) {
 				entropy_unmasked[i] = 0;
 			}
 			else {
@@ -434,7 +434,7 @@ private:
 			test = entropy_smoothed[each] / MAXIMUM;
 			test = abs(test - 1);
 			thresh1 = (t * test);
-			if (!isnan(thresh1)) {
+			if (!std::isnan(thresh1)) {
 				constant_temp = (thresh1 + constant_temp) / 2; //catch errors
 			}
 			//set the masking values
@@ -1104,9 +1104,12 @@ int main() {
 
 	end_time = clock(); // get end time
 	float duration = (float)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0; // calculate duration in milliseconds
-	std::cout << "Total execution time: " << duration << " milliseconds" << std::endl;
-	system("pause");
+	float T_block_millis = (20.0F * 8192.0F * 1000.0F) / 48000.0F;
+	std::cout << "Total execution time: " << duration << " milliseconds for " << T_block_millis << " ms signal" << std::endl;
+	float realtime_factor = T_block_millis / duration;
+	std::cout << "Realtime factor: " << realtime_factor << std::endl;
 
+	// system("pause");
 
 	return 0;
 }
@@ -1139,10 +1142,5 @@ count: 128
 count: 128
 
 For all iterations, the entropy max should be: 0.2758841200365006.
-
-
-
-
-
 
 */
