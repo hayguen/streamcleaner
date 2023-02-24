@@ -1229,8 +1229,13 @@ int main() {
 
 	end_time = clock(); // get end time
 	float duration = (float)(end_time - start_time) / CLOCKS_PER_SEC * 1000.0; // calculate duration in milliseconds
-	std::cout << "Total execution time: " << duration << " milliseconds" << std::endl;
+	float T_block_millis = (20.0F * 8192.0F * 1000.0F) / 48000.0F;
+	std::cout << "Total execution time: " << duration << " milliseconds for " << T_block_millis << " ms signal" << std::endl;
+	float realtime_factor = T_block_millis / duration;
+	std::cout << "Realtime factor: " << realtime_factor << std::endl;
+#if defined(_MSC_VER)
 	system("pause");
+#endif
 
 
 	return 0;
